@@ -1,7 +1,11 @@
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
+import logging
 
 app = Flask(__name__)
+
+# Configurar logging
+logging.basicConfig(level=logging.DEBUG)
 
 # Cardápio com preços
 cardapio = {
@@ -21,29 +25,43 @@ cardapio = {
     '14': {'nome': 'Pizza Romeu e Julieta: goiabada derretida com queijo mozarela', 'preco': 27.00},
     '15': {'nome': 'Coca-Cola', 'preco': 5.00},
     '16': {'nome': 'Guaraná', 'preco': 5.00},
-    '17': {'nome': 'Sprite', 'preco': 5.00}
+    '17': {'nome': 'Sprite', 'preco': 5.00},
+    '18': {'nome': 'Laranja', 'preco': 5.00},
+    '19': {'nome': 'Maracujá', 'preco': 5.00},
+    '20': {'nome': 'Uva', 'preco': 5.00}
 }
 
 # Função para exibir o cardápio de refrigerantes
 def exibir_cardapio_refrigerantes():
     return '\n'.join([
         '\nRefrigerantes:',
-        '1. Coca-Cola - R$ 5.00',
-        '2. Guaraná - R$ 5.00',
-        '3. Sprite - R$ 5.00'
+        '15. Coca-Cola - R$ 5.00',
+        '16. Guaraná - R$ 5.00',
+        '17. Sprite - R$ 5.00'
+    ])
+
+# Função para exibir o cardápio de sucos
+def exibir_cardapio_suco():
+    return '\n'.join([
+        '\nSucos:',
+        '18. Laranja - R$ 5.00',
+        '19. Maracujá - R$ 5.00',
+        '20. Uva - R$ 5.00'
     ])
 
 # Variáveis globais para armazenar o estado da conversa
 user_state = {}
 
-@app.route("/sms", methods=['GET', 'POST'])
+@app.route("/sms", methods=['POST'])
 def sms_reply():
     """Responder a mensagens SMS com um chatbot."""
-    # Obtenha a mensagem do usuário
-    incoming_msg = request.form.get('Body').strip().lower()
-    from_number = request.form.get('From')
+    logging.debug("Recebido uma mensagem")
+    logging.debug(f"Dados da requisição: {request.form}")
 
-    # Inicialize a resposta do Twilio
+    incoming_msg = request.form.get('Body', '').strip().lower()
+    from_number = request.form.get('From')
+    logging.debug(f"Mensagem recebida: {incoming_msg} de {from_number}")
+
     resp = MessagingResponse()
     msg = resp.message()
 
@@ -56,6 +74,7 @@ def sms_reply():
         }
 
     user = user_state[from_number]
+    logging.debug(f"Estado do usuário: {user}")
 
     if user['step'] == 'welcome':
         user['step'] = 'get_name'
@@ -75,29 +94,46 @@ def sms_reply():
             msg.body('Opção inválida. Por favor, escolha uma opção válida do cardápio.')
     elif user['step'] == 'ask_drink':
         if incoming_msg in ['sim', 's']:
-            user['step'] = 'drink_menu'
-            msg.body(exibir_cardapio_refrigerantes())
+            user['step'] = 'drink_type'
+            msg.body('Você gostaria de adicionar refrigerante ou suco? Digite "refrigerante" ou "suco".')
         elif incoming_msg in ['não', 'nao', 'n']:
             user['step'] = 'get_location'
             msg.body('Sem bebida adicionada. Por favor, informe sua localização para entrega:')
         else:
             msg.body('Não entendi sua resposta. Por favor, responda com "sim" ou "não".')
+    elif user['step'] == 'drink_type':
+        if incoming_msg == 'refrigerante':
+            user['step'] = 'drink_menu'
+            msg.body(exibir_cardapio_refrigerantes())
+        elif incoming_msg == 'suco':
+            user['step'] = 'juice_menu'
+            msg.body(exibir_cardapio_suco())
+        else:
+            msg.body('Não entendi sua resposta. Por favor, escolha "refrigerante" ou "suco".')
     elif user['step'] == 'drink_menu':
-        if incoming_msg in ['1', '2', '3']:
-            bebida_chave = str(int(incoming_msg) + 14)
-            bebida_escolhida = cardapio[bebida_chave]
+        if incoming_msg in ['15', '16', '17']:
+            bebida_escolhida = cardapio[incoming_msg]
             user['order'].append(bebida_escolhida)
             user['total'] += bebida_escolhida['preco']
             user['step'] = 'get_location'
             msg.body(f'Você escolheu: {bebida_escolhida["nome"]} - R$ {bebida_escolhida["preco"]:.2f}\nPor favor, informe sua localização para entrega:')
         else:
-            msg.body('Opção de refrigerante inválida. Por favor, escolha uma opção de 1 a 3.')
+            msg.body('Opção de refrigerante inválida. Por favor, escolha uma opção válida.')
+    elif user['step'] == 'juice_menu':
+        if incoming_msg in ['18', '19', '20']:
+            suco_escolhido = cardapio[incoming_msg]
+            user['order'].append(suco_escolhido)
+            user['total'] += suco_escolhido['preco']
+            user['step'] = 'get_location'
+            msg.body(f'Você escolheu: {suco_escolhido["nome"]} - R$ {suco_escolhido["preco"]:.2f}\nPor favor, informe sua localização para entrega:')
+        else:
+            msg.body('Opção de suco inválida. Por favor, escolha uma opção válida.')
     elif user['step'] == 'get_location':
         user['location'] = incoming_msg
         msg.body(f'O total do seu pedido é R$ {user["total"]:.2f}.\nSeu pedido será entregue em: {user["location"]}.\nObrigado por pedir na Pizzaria do Gordinho!')
-        # Resetar o estado do usuário
         del user_state[from_number]
 
+    logging.debug(f"Resposta: {msg.body}")
     return str(resp)
 
 if __name__ == "__main__":
